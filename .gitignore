@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtualenvs
+.venv/
+venv/
+env/
+
+# Local Hermes store (only matters if someone overrides the default to ./store)
+store/
+*.lance/
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

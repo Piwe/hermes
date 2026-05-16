@@ -1,0 +1,259 @@
+# Article brief — "Building an Ambient Developer Daemon with Nous Hermes"
+
+> A blog post about an experiment: what a *continuously running*, locally
+> hosted multi-agent developer assistant looks like when the underlying
+> model is open-weight. Hybrid build-log / thought-experiment, with
+> pseudocode for the trickiest parts and a getting-started guide at the
+> end so readers can replicate the smallest slice.
+
+---
+
+## Meta
+
+- **Audience** — general dev / engineering blog. Readers know LLMs broadly
+  (RAG, function calling, agents) but not Nous Hermes specifically. Briefly
+  introduce Hermes; don't over-explain LLM basics.
+- **Length** — ~2000–3000 words.
+- **Approach** — describe the experiment as if a build log, but be honest
+  that only the smallest slice is actually wired up. Use pseudocode for
+  the complex orchestration / memory pieces; gesture at the rest.
+- **Tone** — engineering-credible, opinionated, no hype. Lead with
+  trade-offs, not capabilities.
+- **Title candidates**
+  - *"Building an Ambient Developer Daemon with Nous Hermes"* (default —
+    plain and accurate)
+  - *"Always-On Agents: What Open Weights Let You Build"*
+  - *"The Background Dev Assistant Hosted Models Can't Justify"*
+
+## Thesis (one paragraph the post argues)
+
+Most AI dev tools are request/response: you ask, they answer, they forget.
+That shape is forced by the economics of hosted inference — running four
+agents in the background all day would be uneconomical on a per-token API.
+Open-weight Hermes inverts that: inference is free at the margin, the
+model lives on the box, and Hermes' native function calling makes
+multi-agent orchestration a first-class pattern. So we can finally build
+the obvious thing: an ambient daemon, powered by Nous Hermes 3, that
+maintains a living memory of your codebase and does small useful work in
+the background — surfacing a morning brief, running affected tests on
+save, drafting commit messages, answering "why did we choose X" from your
+own history.
+
+---
+
+## Article structure
+
+| § | Section | ~Words | What it does |
+|---|---|---|---|
+| 1 | Hook: the context-reconstruction tax | 200 | Open with the daily friction; set up why background work matters |
+| 2 | Why this needed open weights | 250 | The economics + privacy argument; what Hermes is, briefly |
+| 3 | The shape: ambient daemon + repo memory | 350 | Architecture overview; the agents↔memory symbiosis; three trigger paths |
+| 4 | A day with it (concrete walkthrough) | 400 | Morning brief → background tests → commit helper → Q&A → doc drift. The engagement bait. |
+| 5 | How the interesting parts work | 800 | Pseudocode for the four hard pieces (see below) |
+| 6 | What's hard / what surprised me | 300 | Honest reflections — ingestion is the real problem, not the agent loop |
+| 7 | Getting started: try the smallest slice | 400 | Component list + minimal recipe + pointers to expand |
+| — | **Total** | **~2700** | |
+
+## Pseudocode snippets to write (for §5)
+
+Four blocks, kept short (≤25 lines each), shown in Python-flavored
+pseudocode. The point is to make the design concrete without pretending we
+shipped a library.
+
+1. **Memory ingestion loop** — file watcher → chunker → embedder → store.
+   Shows the indexer agent's inner loop. Highlight the chunking choice
+   (symbol-aware for code, paragraph for prose) as the place real engineering
+   happens.
+2. **The router pattern** — small Hermes (8B) classifies an incoming
+   event/request; dispatches to a specialist with the right tool subset.
+   Shows how mixed sizes pay off in practice.
+3. **A Hermes function-call agent loop** — parse `<tool_call>` XML, execute
+   the named tool, feed result back, loop until model emits final answer.
+   This is the "multi-agent on Hermes" claim made concrete; readers
+   familiar with OpenAI tool calling will recognise the pattern.
+4. **Memory-augmented Q&A** — the on-demand `hermes ask` path: structured
+   filter (who/when/where) → vector retrieve → synthesise. Demonstrates the
+   structured-index + vector-index combo paying off.
+
+## Section 6 — what to be honest about
+
+Don't ship a triumph narrative. Things to actually say:
+
+- **Ingestion is the hard problem.** Wiring up Slack/Linear adapters, dedup,
+  re-indexing on schema changes — this dwarfs the agent code in effort.
+- **Notification rate-limiting matters more than token rate-limiting.** The
+  failure mode of an ambient tool is becoming noise. The user dismisses it
+  for the day, then forever.
+- **Right-sizing each agent is iterative.** First pass overuses the 70B.
+  Second pass moves classification to 8B. Third pass kills agents whose
+  output the user never reads.
+- **Local inference latency is fine for background, awkward for on-demand.**
+  Q&A feels slow compared to hosted APIs; the ambient surface hides that
+  but the CLI exposes it.
+- **The memory layer drifts without a synthesizer.** Raw events pile up,
+  retrieval signal degrades, briefs get repetitive. Periodic rollups aren't
+  optional.
+
+## Section 7 — getting-started components (final form TBD)
+
+Stack to recommend in the closing guide. Pick the lowest-friction options
+unless there's a strong reason not to.
+
+- **Inference runtime** — Ollama for ease (single binary, GGUF models),
+  vLLM for throughput if the reader has the GPU. Mention `llama.cpp`
+  directly for hackers.
+- **Hermes model** — `hermes3:8b` as the default (laptop-friendly,
+  function-calling reliable); `hermes3:70b` if VRAM allows. Note Hermes 4
+  isn't yet in the Ollama library; swap when it lands.
+- **Vector store** — LanceDB (embedded, no server) as the default;
+  Chroma as the alternative.
+- **Embeddings** — `nomic-embed-text` or `bge-small-en-v1.5` — both run
+  locally, both small.
+- **File watcher** — `watchdog` (Python) or `chokidar` (Node).
+- **Minimal recipe (~30 lines pseudocode)** — git log ingest + one
+  on-demand Q&A agent. Reader can run that, then expand outward.
+
+---
+
+## Open questions to resolve before drafting
+
+- Do we ship the smallest slice (git ingest + Q&A) as a real working repo
+  alongside the post, or keep it pseudocode-only? (Recommend: yes, ship it
+  — readers trust posts with working code more, and that slice is small.)
+- Do we want a single hero diagram of the architecture, or inline ASCII
+  per section? (Recommend: hero diagram + ASCII for the agent roster.)
+- Drafting cadence — write straight through, or section-by-section with
+  review between?
+
+---
+---
+
+# Source material — design content (for drafting §3, §4, §5)
+
+Substance from the prior product-spec draft, kept here as raw material for
+the article, not for inclusion as-is. Trimmed to remove product-pitch
+framing (vision statements, success metrics, non-goals, naming).
+
+## Architecture (drawn from for §3)
+
+Three layers:
+
+```
+   ┌─────────────────────────────────────────────────────────────┐
+   │  SURFACES        tray · morning brief · CLI · editor hint   │
+   ├─────────────────────────────────────────────────────────────┤
+   │  AGENT RUNTIME   router → specialist agents (Hermes models) │
+   │                  triggered by events, schedule, or on-demand│
+   ├─────────────────────────────────────────────────────────────┤
+   │  MEMORY LAYER    vector store + structured index + raw log  │
+   │                  fed by ingestion adapters (git, slack, …)  │
+   └─────────────────────────────────────────────────────────────┘
+```
+
+Memory and agents are symbiotic: every agent's first move is a memory
+lookup; every meaningful event the agents observe goes back into memory.
+Memory without agents is a dead vector store; agents without memory are
+stateless chatbots.
+
+Three activation paths:
+1. **Reactive** — file watch, git hooks, webhooks.
+2. **Scheduled** — nightly memory consolidation, weekday morning brief.
+3. **On-demand** — `hermes ask`, tray click, editor invocation.
+
+A priority-aware work queue sits between triggers and agents so bursty
+events (rebase, mass save) don't fan out into dozens of parallel runs.
+
+## Memory layer (drawn from for §3 and §5)
+
+Sources ingested: git (commits, diffs, blame), GitHub/GitLab (PRs, issues,
+review threads), Slack/Discord (per-channel scope), Linear/Jira, in-repo
+markdown, optional Notion/Google Docs, local activity (file paths only,
+test runs, opt-in terminal command log).
+
+Storage shape:
+- **Raw event log** — append-only source-of-truth, cheap to replay.
+- **Vector index** — semantic search over chunks; chunking is
+  symbol-aware for code, paragraph for prose.
+- **Structured index** — symbols, files, authors, dates; precise lookups
+  ("who last touched X", "PRs mentioning Kafka") without burning tokens.
+- **Rolling summaries** — synthesizer agent rolls raw events into
+  weekly/topic summaries to keep retrieval signal high.
+
+Privacy posture: all inference local, no outbound calls except the
+explicitly enabled adapters, per-source scoping (`.hermesignore`),
+encrypted local store.
+
+## Agent roster (drawn from for §3 and §4)
+
+Memory-side (mostly background):
+
+| Agent | Trigger | Job |
+|---|---|---|
+| Indexer | file change, git event, ingestion poll | normalize + chunk + embed new content |
+| Synthesizer | nightly + on-demand | roll raw events into weekly/topic summaries |
+| Connector adapters | per-source webhook/poll | pull from Slack/GitHub/Linear |
+
+Workflow-side:
+
+| Agent | Trigger | Job |
+|---|---|---|
+| Test runner | file save | identify affected tests, run in background, surface failures with memory context |
+| Commit helper | `git commit`, or staged-and-idle | draft commit message from diff + recent context |
+| Doc keeper | code change near documented symbol | flag drift between code and README/docstring |
+| Standup composer | scheduled morning | "where you left off" + overnight changes + blockers |
+| Repo Q&A | on-demand (`hermes ask`) | answer questions using memory |
+| Router | every event/request | classify intent, dispatch, decide reasoning depth |
+
+Sizing: router is **Hermes 3 8B** (small, warm, cheap). Specialists use
+**Hermes 3 70B** when synthesis or code is needed. **Hermes 3 405B** is
+reserved for opt-in heavy work.
+
+## Daily walkthrough (the §4 narrative)
+
+**08:42** — User opens terminal. First-shell hook prints the morning brief:
+> *Yesterday you finished the retry logic in `worker/dispatch.py` and
+> opened PR #482. Overnight: PR #482 got two review comments from Sam
+> (both about the backoff curve); main has 3 new commits, none touch your
+> files. Linear ticket ENG-1209 was assigned to you. Suggested first move:
+> address Sam's backoff comment — relevant prior discussion in #eng-platform
+> on 2026-04-30.*
+
+**09:15** — User edits `worker/dispatch.py`. Test runner agent silently
+runs the 14 affected tests in the background. One fails. Tray icon flips
+amber; clicking shows the failure with a memory-pulled note: *"This test
+also failed during the April incident; root cause was clock skew in the
+fixture."*
+
+**11:02** — User stages a commit. Commit helper has prefilled the message
+based on the diff and the open Linear ticket. User edits one word and
+commits.
+
+**14:30** — User asks: `hermes ask "why did we choose redis over memcached
+for the rate limiter"`. Repo Q&A pulls the relevant ADR, two PR
+discussions, and a Slack thread from eight months ago, and answers in four
+sentences with citations.
+
+**18:00** — Doc keeper notices that `README.md` still describes the old
+config schema that today's commit changed. Drops a notification: *"README
+config section drifted — draft fix ready"*. User accepts; a follow-up
+commit is staged.
+
+**Overnight** — Synthesizer rolls the day's events into the weekly theme
+index. Indexer ingests the day's Slack messages from `#payments`.
+Tomorrow's brief reflects both.
+
+## Why Hermes (for §2)
+
+- **Open weights** — self-hosted, no per-token cost, no rate limits, code
+  and conversations never leave the machine.
+- **Native function calling** with the `<tool_call>`/`<tools>` XML
+  convention — multi-agent orchestration is what these models are trained
+  for; we don't have to fight the model to get reliable tool use.
+- **Mixed sizes** (3B / 8B / 70B / 405B) — cheap small models for routing,
+  big models for reasoning. Router pattern is practical, not aspirational.
+- **Permissive alignment** — fewer false refusals on dual-use developer
+  tasks (security analysis, exploit-aware code review).
+
+If we ever swapped to another open model, the architecture would survive
+— but Hermes' function-calling reliability is what lets us start with a
+multi-agent design rather than a monolith.
