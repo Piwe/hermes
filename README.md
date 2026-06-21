@@ -16,8 +16,9 @@ watcher, no extra agents.
 
 ## Recognition
 
-This project was written up for the [DEV Community](https://dev.to/), which
-earned a trophy:
+This project was written up for the DEV Community —
+[Building an ambient developer daemon with Nous Hermes](https://dev.to/piwe/building-an-ambient-developer-daemon-with-nous-hermes-1667)
+— which earned a trophy:
 
 <img src="./HermesTrophy.png" alt="Hermes — DEV Community trophy" width="240" />
 
