@@ -14,6 +14,13 @@ with a multi-agent runtime over a persistent memory layer. The slice
 shipped here is the *memory + on-demand Q&A* path. No daemon, no file
 watcher, no extra agents.
 
+## Recognition
+
+This project was written up for the [DEV Community](https://dev.to/), which
+earned a trophy:
+
+<img src="./HermesTrophy.png" alt="Hermes — DEV Community trophy" width="240" />
+
 ---
 
 ## Prerequisites
